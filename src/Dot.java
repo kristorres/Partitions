@@ -42,6 +42,22 @@ public class Dot extends Point
    public Color getColor() { return color; }
    
    /**
+    * Returns the <i>x</i>-coordinate of this dot relative to the Ferrers
+    * diagram.
+    * 
+    * @return the relative <i>x</i>-coordinate
+    */
+   public int getRelativeX() { return x / (3 * radius); }
+   
+   /**
+    * Returns the <i>y</i>-coordinate of this dot relative to the Ferrers
+    * diagram.
+    * 
+    * @return the relative <i>y</i>-coordinate
+    */
+   public int getRelativeY() { return y / (3 * radius); }
+   
+   /**
     * Paints with dot with the specified two-dimensional graphics.
     * 
     * @param g   the two-dimensional graphics

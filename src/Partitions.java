@@ -9,6 +9,9 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.Vector;
 
 import javax.swing.BorderFactory;
@@ -27,6 +30,8 @@ import javax.swing.border.TitledBorder;
 
 /**
  * An applet which animates partition bijections.
+ * 
+ * @version 1.1
  * 
  * @author Kris Torres
  */
@@ -159,21 +164,18 @@ public class Partitions extends JApplet
       private static final int DELAY = 20;
       private static final int MIN_PARTITION_SIZE = 1;
       private static final int MAX_PARTITION_SIZE = 100;
-      private static final int MAX_DOT_RADIUS = 20;
-      private final int[] SENTINELS = { 14, 15, 16, 17, 18, 19, 21, 22, 24, 27,
-         29, 33, 37, 42, 49, 59, 74 };
+      private static final int DOT_RADIUS = 5;
       
       // Colors
       private final Color UCLA_BLUE = new Color(50, 132, 191);
       private final Color UCLA_GOLD = new Color(255, 232, 0);
-      private final Color TRANSLUCENT_UCLA_BLUE = new Color(50, 132, 191, 128);
-      private final Color TRANSLUCENT_UCLA_GOLD = new Color(255, 232, 0, 128);
-      private final Color TRANSLUCENT_WHITE = new Color(255, 255, 255, 128);
+      private final Color PHILIPPINE_BLUE = new Color(0, 56, 168);
+      private final Color PHILIPPINE_RED = new Color(206, 17, 38);
+      private final Color PHILIPPINE_GOLD = new Color(252, 209, 22);
       
       // Instance variables
       private int rows;
       private int columns;
-      private int dotRadius;
       
       @Override
       public void actionPerformed(ActionEvent e)
@@ -188,7 +190,6 @@ public class Partitions extends JApplet
             
             rows = λ.numberOfParts();
             columns = λ.largestPart();
-            dotRadius = MAX_DOT_RADIUS;
             ferrers = new Dot[rows * columns];
             
             Thread bijection = new Thread(this);
@@ -204,7 +205,7 @@ public class Partitions extends JApplet
                message = "The size field text cannot be parsed as an integer.";
             
             JOptionPane.showMessageDialog(null, message, "",
-               JOptionPane.ERROR_MESSAGE);
+               JOptionPane.PLAIN_MESSAGE);
          }
          catch (RuntimeException re)
          {
@@ -215,7 +216,7 @@ public class Partitions extends JApplet
                message = "An even partition cannot have an odd weight.";
             
             JOptionPane.showMessageDialog(null, message, "",
-               JOptionPane.ERROR_MESSAGE);
+               JOptionPane.PLAIN_MESSAGE);
          }
       }
       
@@ -225,35 +226,16 @@ public class Partitions extends JApplet
          try
          {
             String bijectionType = (String) bijectionComboBox.getSelectedItem();
+            createFerrersDiagram();
             
-            // Animates the bijection.
             if (bijectionType == STRIKE_SLIP)
-            {
-               createFerrersDiagram(rows + 1, columns);
-               cut(1, 0, UCLA_BLUE, UCLA_GOLD);
                animateStrikeSlipBijection();
-            }
             else if (bijectionType == SHRED_STRETCH)
-            {
-               int side = Math.max(rows * 2, columns / 2);
-               createFerrersDiagram(side, side);
-               shred();
                animateShredStretchBijection();
-            }
             else if (bijectionType == CUT_STRETCH)
-            {
-               createFerrersDiagram(rows, columns * 2 - 1);
-               cut(1, 1, TRANSLUCENT_UCLA_BLUE, TRANSLUCENT_UCLA_GOLD);
                animateCutStretchBijection();
-            }
             else if (bijectionType == GLAISHER)
-            {
-               int height = rows;
-               int width = Math.max(columns, (columns - 1) / 2 + rows);
-               createFerrersDiagram(height, width);
-               cut(2, 0, TRANSLUCENT_UCLA_BLUE, TRANSLUCENT_UCLA_GOLD);
                animateGlaisherBijection();
-            }
             
             okayButton.setEnabled(true);
          }
@@ -261,306 +243,308 @@ public class Partitions extends JApplet
       }
       
       /**
-       * Animates the cut-stretch bijection.
+       * Appends the lower component to the right side of the upper component.
        * 
-       * @throws InterruptedException if the bijection is interrupted
+       * @param upper   the color of the upper component
+       * @param lower   the color of the lower component
        */
-      private void animateCutStretchBijection() throws InterruptedException
-      {
-         normalizeUpperPartLeft(1, 1);
-         normalizeLowerPartUp();
-         transposeLowerPart(1, 1);
-         stretchBothPartsRight();
-      }
-      
-      /**
-       * Animates the Glaisher bijection.
-       * 
-       * @throws InterruptedException if the bijection is interrupted
-       */
-      private void animateGlaisherBijection() throws InterruptedException
-      {
-         // Upper part
-         normalizeUpperPartLeft(2, 0);
-         colorUpperOddVerticalStrips(TRANSLUCENT_WHITE);
-         compressAllUpperVerticalStripsLeft();
-         stretchAllUpperVerticalStripsDown();
-         colorUpperOddVerticalStrips(TRANSLUCENT_UCLA_BLUE);
-         
-         // Lower part
-         colorLowerOddVerticalStrips(TRANSLUCENT_WHITE);
-         compressAllLowerVerticalStripsDown();
-         normalizeAllLowerVerticalStrips();
-         transposeLowerPart(2, 0);
-         stretchAllLowerVerticalStripsDown();
-         colorLowerOddVerticalStrips(TRANSLUCENT_UCLA_GOLD);
-         
-         appendBothParts();
-      }
-      
-      /**
-       * Animates the shred-stretch bijection.
-       * 
-       * @throws InterruptedException if the bijection is interrupted
-       */
-      private void animateShredStretchBijection() throws InterruptedException
-      {
-         compressAllVerticalStripsLeft();
-         stretchAllVerticalStripsDown();
-         transpose();
-      }
-      
-      /**
-       * Animates the strike-slip bijection.
-       * 
-       * @throws InterruptedException if the bijection is interrupted
-       */
-      private void animateStrikeSlipBijection() throws InterruptedException
+      private void add(Color upper, Color lower) throws InterruptedException
       {
          Vector<Thread> v = new Vector<Thread>();
+         Set<Integer> upperY = new TreeSet<Integer>();
          
+         // Inserts the y-coordinates in the upper component to the set.
          for (Dot dot : ferrers)
          {
-            // Upper part
-            if (dot != null && dot.getColor() == UCLA_BLUE)
-               v.add(new Thread(new AnimationRunnable(dot, -1, 0)));
-            
-            // Lower part
-            if (dot != null && dot.getColor() == UCLA_GOLD)
-               v.add(new Thread(new AnimationRunnable(dot, 0, 1)));
+            if (dot != null && dot.getColor() == upper)
+               upperY.add(dot.y / (DOT_RADIUS * 3));
          }
          
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Appends both parts of the Ferrers diagram to each other side by side.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void appendBothParts() throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
+         Iterator<Integer> pos = upperY.iterator();
          
-         int dotDiameter = dotRadius * 2;
-         int latticeUnit = dotRadius + dotDiameter;
-         
-         for (int i = 0, jo = 1, je = 2; i < rows; i++, jo += 2, je += 2)
+         while (pos.hasNext())
          {
-            int dxo = 0;
-            int dxe = 0;
+            int y = pos.next();
+            int dx = 0;
             
-            // Determines the horizontal shift of...
+            // Determines the shift of the rows in the lower component.
             for (Dot dot : ferrers)
             {
-               // ...the "odd" rows of the upper part.
-               if (dot != null && dot.getColor() == TRANSLUCENT_UCLA_GOLD
-                  && jo < λ.part(i) && jo == dot.y / latticeUnit + 1) { dxo++; }
-               
-               // ...the "even" rows of the upper part.
-               if (dot != null && dot.getColor() == TRANSLUCENT_UCLA_GOLD
-                  && je < λ.part(i) && je == dot.y / latticeUnit + 1) { dxe++; }
+               if (dot != null && dot.getColor() == upper
+                  && y == dot.y / (DOT_RADIUS * 3)) { dx++; }
             }
             
-            // Shifts the "odd" rows of the upper part to the right.
-            for (int j = jo; j < λ.part(i); j += 2)
+            // Shifts the rows in the lower component to the right.
+            for (Dot dot : ferrers)
             {
-               int k = i * columns + j;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], dxo, 0)));
-            }
-            
-            // Shifts the "even" rows of the upper part to the right.
-            for (int j = je; j < λ.part(i); j += 2)
-            {
-               int k = i * columns + j;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], dxe, 0)));
+               if (dot != null && dot.getColor() == lower
+                  && y == dot.y / (DOT_RADIUS * 3) - rows)
+               {
+                  v.add(new Thread(new AnimationRunnable(dot, dx, 0)));
+               }
             }
          }
          
-         // Starts the animation.
          for (Thread t : v) t.start();
          for (Thread t : v) t.join();
+         move(lower, 0, -rows);
       }
       
-      /**
-       * Colors the "odd" vertical strips of the lower part of the Ferrers
-       * diagram.
-       * 
-       * @param color   the color
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void colorLowerOddVerticalStrips(Color color)
-         throws InterruptedException
+      /** Animates the cut-and-stretch bijection. */
+      private void animateCutStretchBijection() throws InterruptedException
       {
-         Thread.sleep(HOLD);
+         class UpperComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try
+               {
+                  move(UCLA_BLUE, 1, 1);
+                  shift(UCLA_BLUE, 1, -1, 0, 1);
+                  move(UCLA_BLUE, 0, -1);
+                  stretch(UCLA_BLUE, 2, 1);
+               }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         class LowerComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try
+               {
+                  move(UCLA_GOLD, 0, rows);
+                  shift(UCLA_GOLD, 1, 0, -1, 1);
+                  move(UCLA_GOLD, 0, -1);
+                  transpose(UCLA_GOLD, rows);
+                  stretch(UCLA_GOLD, 2, 1);
+                  move(UCLA_GOLD, 1, -rows);
+               }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         cut(-1, 1, 1, UCLA_BLUE, UCLA_GOLD);
+         
+         Thread t1 = new Thread(new UpperComponentRunnable());
+         Thread t2 = new Thread(new LowerComponentRunnable());
+         t1.start();
+         t2.start();
+         t1.join();
+         t2.join();
+      }
+      
+      /** Animates Glaisher's bijection. */
+      private void animateGlaisherBijection() throws InterruptedException
+      {
+         class UpperComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try
+               {
+                  class BlueComponentRunnable implements Runnable
+                  {
+                     @Override
+                     public void run()
+                     {
+                        try { stretch(PHILIPPINE_BLUE, 0.5, 0.5); }
+                        catch (InterruptedException e) {}
+                     }
+                  }
+                  
+                  class GoldComponentRunnable implements Runnable
+                  {
+                     @Override
+                     public void run()
+                     {
+                        try { stretch(PHILIPPINE_GOLD, 0.5, 0.5); }
+                        catch (InterruptedException e) {}
+                     }
+                  }
+                  
+                  move(PHILIPPINE_BLUE, 1, 1);
+                  shift(PHILIPPINE_BLUE, 1, -2, 0, 1);
+                  move(PHILIPPINE_BLUE, 0, -1);
+                  shred(PHILIPPINE_BLUE, PHILIPPINE_BLUE, PHILIPPINE_GOLD);
+                  move(PHILIPPINE_BLUE, 1, 0);
+                  
+                  Thread t1 = new Thread(new BlueComponentRunnable());
+                  Thread t2 = new Thread(new GoldComponentRunnable());
+                  t1.start();
+                  t2.start();
+                  t1.join();
+                  t2.join();
+                  
+                  move(PHILIPPINE_GOLD, 0, 1);
+                  fill(PHILIPPINE_GOLD, PHILIPPINE_BLUE);
+               }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         class LowerComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try
+               {
+                  class RedComponentRunnable implements Runnable
+                  {
+                     @Override
+                     public void run()
+                     {
+                        try
+                        {
+                           stretch(PHILIPPINE_RED, 0.5, 1);
+                           shift(PHILIPPINE_RED, 1, 0, -1, 1);
+                           transpose(PHILIPPINE_RED, rows);
+                           stretch(PHILIPPINE_RED, 1, 0.5);
+                           move(PHILIPPINE_RED, 0, -rows);
+                        }
+                        catch (InterruptedException e) {}
+                     }
+                  }
+                  
+                  class WhiteComponentRunnable implements Runnable
+                  {
+                     @Override
+                     public void run()
+                     {
+                        try
+                        {
+                           stretch(Color.WHITE, 0.5, 1);
+                           shift(Color.WHITE, 1, 0, -1, 1);
+                           transpose(Color.WHITE, rows + 1);
+                           stretch(Color.WHITE, 1, 0.5);
+                           move(Color.WHITE, 0, -rows - 1);
+                        }
+                        catch (InterruptedException e) {}
+                     }
+                  }
+                  
+                  move(PHILIPPINE_RED, 0, rows);
+                  shred(PHILIPPINE_RED, PHILIPPINE_RED, Color.WHITE);
+                  move(PHILIPPINE_RED, 1, 0);
+                  
+                  Thread t1 = new Thread(new RedComponentRunnable());
+                  Thread t2 = new Thread(new WhiteComponentRunnable());
+                  t1.start();
+                  t2.start();
+                  t1.join();
+                  t2.join();
+                  
+                  fill(Color.WHITE, PHILIPPINE_RED);
+               }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         cut(-1, 2, 0, PHILIPPINE_BLUE, PHILIPPINE_RED);
+         
+         Thread t1 = new Thread(new UpperComponentRunnable());
+         Thread t2 = new Thread(new LowerComponentRunnable());
+         t1.start();
+         t2.start();
+         t1.join();
+         t2.join();
+         
+         add(PHILIPPINE_BLUE, PHILIPPINE_RED);
+      }
+      
+      /** Animates the shred-and-stretch bijection. */
+      private void animateShredStretchBijection() throws InterruptedException
+      {
+         class UpperComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try { stretch(UCLA_BLUE, 0.5, 0.5); }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         class LowerComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try { stretch(UCLA_GOLD, 0.5, 0.5); }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         shred(Color.BLACK, UCLA_BLUE, UCLA_GOLD);
+         move(UCLA_BLUE, 1, 0);
+         
+         Thread t1 = new Thread(new UpperComponentRunnable());
+         Thread t2 = new Thread(new LowerComponentRunnable());
+         t1.start();
+         t2.start();
+         t1.join();
+         t2.join();
+         
+         transpose();
+         move(UCLA_GOLD, 1, 0);
+      }
+      
+      /** Animates the strike-slip bijection. */
+      private void animateStrikeSlipBijection() throws InterruptedException
+      {
+         class UpperComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try { move(UCLA_BLUE, -1, 0); }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         class LowerComponentRunnable implements Runnable
+         {
+            @Override
+            public void run()
+            {
+               try { move(UCLA_GOLD, 0, 1); }
+               catch (InterruptedException e) {}
+            }
+         }
+         
+         cut(-1, 1, 0, UCLA_BLUE, UCLA_GOLD);
+         
+         Thread t1 = new Thread(new UpperComponentRunnable());
+         Thread t2 = new Thread(new LowerComponentRunnable());
+         t1.start();
+         t2.start();
+         t1.join();
+         t2.join();
+      }
+      
+      /** Creates the Ferrers diagram. */
+      private void createFerrersDiagram() throws InterruptedException
+      {
+         int dotDiameter = DOT_RADIUS * 2;
+         int latticeUnit = DOT_RADIUS + dotDiameter;
          
          for (int i = 0; i < rows; i++)
-         {
-            for (int j = 1; j <= 2 * i; j += 2)
-            {
-               int k = i * columns + j;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  ferrers[k].setColor(color);
-            }
-         }
-         
-         pause(HOLD);
-      }
-      
-      /**
-       * Colors the "odd" vertical strips of the upper part of the Ferrers
-       * diagram.
-       * 
-       * @param color   the color
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void colorUpperOddVerticalStrips(Color color)
-         throws InterruptedException
-      {
-         Thread.sleep(HOLD);
-         
-         for (int i = 0; i < rows; i++)
-         {
-            for (int j = 2 * i + 2; j < λ.part(i); j += 2)
-               ferrers[i * columns + j].setColor(color);
-         }
-         
-         pause(HOLD);
-      }
-      
-      /**
-       * Compress all of the vertical strips of the lower part of the Ferrers
-       * diagram to the left.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void compressAllLowerVerticalStripsDown()
-         throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
-         
-         for (int i = 0; i < rows; i++)
-         {
-            // "Even" vertical strips of the lower part
-            for (int j = 0; j <= 2 * i; j += 2)
-            {
-               int k = i * columns + j;
-               int dx = -j / 2;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-            
-            // "Odd" vertical strips of the lower part
-            for (int j = 1; j <= 2 * i; j += 2)
-            {
-               int k = i * columns + j;
-               int dx = -(j + 1) / 2;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-         }
-         
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Compresses all of the vertical strips of the upper part of the Ferrers
-       * diagram to the left.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void compressAllUpperVerticalStripsLeft()
-         throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
-         
-         for (int i = 0; i < rows; i++)
-         {
-            for (int j = 2 * i + 1; j < λ.part(i); j++)
-            {
-               int k = i * columns + j;
-               int dx = (i * 2 - j) / 2;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-         }
-         
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Compresses all of the vertical strips of the Ferrers diagram to the
-       * left.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void compressAllVerticalStripsLeft() throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
-         
-         for (int i = 0; i < rows; i++)
-         {
-            // "Even" vertical strips
-            for (int j = 0; j < λ.part(i); j += 2)
-            {
-               int k = i * columns + j;
-               int dx = -j / 2;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-            
-            // "Odd" vertical strips
-            for (int j = 1; j < λ.part(i); j += 2)
-            {
-               int k = i * columns + j;
-               int dx = -(j + 1) / 2;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-         }
-         
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Creates a Ferrers diagram.
-       * 
-       * @param rows      the maximum number of rows in the Ferrers diagram
-       *                  during the bijection
-       * @param columns   the maximum number of columns in the Ferrers diagram
-       *                  during the bijection
-       */
-      private void createFerrersDiagram(int rows, int columns)
-      {
-         // Shrinks the Ferrers diagram in order to fit inside the board.
-         for (int sentinel : SENTINELS)
-         {
-            if (rows > sentinel || columns > sentinel) dotRadius--;
-            else break;
-         }
-         
-         int dotDiameter = dotRadius * 2;
-         int latticeUnit = dotRadius + dotDiameter;
-         
-         // Creates the Ferrers diagram.
-         for (int i = 0; i < this.rows; i++)
          {
             for (int j = 0; j < λ.part(i); j++)
             {
                int x = j * latticeUnit + dotDiameter;
                int y = i * latticeUnit + dotDiameter;
-               ferrers[i * this.columns + j] = new Dot(x, y, dotRadius, null);
+               ferrers[i * columns + j] = new Dot(x, y, DOT_RADIUS,
+                  Color.BLACK);
             }
          }
+         
+         pause(HOLD);
       }
       
       /**
@@ -654,32 +638,27 @@ public class Partitions extends JApplet
       }
       
       /**
-       * Cuts the Ferrers diagram along the line
-       * <i>ai</i> − <i>j</i> = <i>c</i>. The upper part is in one specified
-       * color, and the lower part is in another specified color.
+       * Projects the dots (<i>i</i>, <i>j</i>) onto the upper component if
+       * <i>ai</i> + <i>bj</i> < <i>c</i>, and onto the lower component
+       * otherwise, where <i>a</i>, <i>b</i>, <i>c</i> ∈ ℤ.
        * 
-       * @param a       the slope of the diagonal cut
+       * @param a       the rise of the slope of the diagonal cut
+       * @param b       the run of the slope of the diagonal cut
        * @param c       the downward shift in the diagonal cut
        * @param upper   the color of the upper part
        * @param lower   the color of the lower part
-       * 
-       * @throws InterruptedException if the animation is interrupted
        */
-      private void cut(int a, int c, Color upper, Color lower)
+      private void cut(int a, int b, int c, Color upper, Color lower)
          throws InterruptedException
       {
-         for (int i = 0; i < rows; i++)
+         for (Dot dot : ferrers)
          {
-            // Upper part
-            for (int j = a * i - c + 1; j < λ.part(i); j++)
-               ferrers[i * columns + j].setColor(upper);
-            
-            // Lower part
-            for (int j = 0; j <= a * i - c; j++)
+            if (dot != null)
             {
-               int k = i * columns + j;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  ferrers[k].setColor(lower);
+               int x = dot.x / (DOT_RADIUS * 3);
+               int y = dot.y / (DOT_RADIUS * 3);
+               if (a * x + b * y < c) dot.setColor(upper);
+               else dot.setColor(lower);
             }
          }
          
@@ -687,91 +666,37 @@ public class Partitions extends JApplet
       }
       
       /**
-       * Normalize all of the vertical strips of lower part of the Ferrers
-       * diagram to the left.
+       * Changes the color of the specified dots.
        * 
-       * @throws InterruptedException if the animation is interrupted
+       * @param from   the color of the dots to change
+       * @param to     the new color of the dots
        */
-      private void normalizeAllLowerVerticalStrips() throws InterruptedException
+      private void fill(Color from, Color to) throws InterruptedException
       {
-         Vector<Thread> v = new Vector<Thread>();
+         for (Dot dot : ferrers)
+            if (dot != null && dot.getColor() == from) dot.setColor(to);
          
-         for (int i = 0; i < rows; i++)
-         {
-            // "Even" vertical strips of the lower part
-            for (int j = 0; j <= 2 * i; j += 2)
-            {
-               int k = i * columns + j;
-               int dy = -j / 2;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
-            
-            // "Odd" vertical strips of the lower part
-            for (int j = 1; j <= 2 * i; j += 2)
-            {
-               int k = i * columns + j;
-               int dy = -(j / 2 + 1);
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
-         }
-         
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
+         pause(HOLD);
       }
       
       /**
-       * Normalizes the lower part of the Ferrers diagram up.
+       * Translates the dots (<i>x</i>, <i>y</i>) of the specified color by the
+       * vector (<i>dx</i>, <i>dy</i>), where <i>dx</i>, <i>dy</i> ∈ ℤ.
        * 
-       * @throws InterruptedException if the animation is interrupted
+       * @param color   the color of the dots to translate
+       * @param dx      the change in the dot's horizontal position
+       * @param dy      the change in the dot's vertical position
        */
-      private void normalizeLowerPartUp() throws InterruptedException
+      private void move(Color color, int dx, int dy) throws InterruptedException
       {
          Vector<Thread> v = new Vector<Thread>();
          
-         for (int i = 0; i < rows; i++)
+         for (Dot dot : ferrers)
          {
-            for (int j = 0; j <= i - 1; j++)
-            {
-               int k = i * columns + j;
-               int dy = -(j + 1);
-               
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
+            if (dot != null && dot.getColor() == color)
+               v.add(new Thread(new AnimationRunnable(dot, dx, dy)));
          }
          
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Normalizes the upper part of the Ferrers diagram to the left.
-       * 
-       * @param a   the slope of the diagonal cut
-       * @param c   the downward shift in the diagonal cut
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void normalizeUpperPartLeft(int a, int c)
-         throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
-         
-         for (int i = 0; i < rows; i++)
-         {
-            for (int j = a * i - c + 1; j < λ.part(i); j++)
-            {
-               int k = i * columns + j;
-               int dx = -a * i + c - 1;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-         }
-         
-         // Starts the animation.
          for (Thread t : v) t.start();
          for (Thread t : v) t.join();
       }
@@ -780,8 +705,6 @@ public class Partitions extends JApplet
        * Pauses the animation for the specified number of milliseconds.
        * 
        * @param duration   the number of milliseconds to pause
-       * 
-       * @throws InterruptedException if the animation is interrupted
        */
       private void pause(int duration) throws InterruptedException
       {
@@ -790,203 +713,133 @@ public class Partitions extends JApplet
       }
       
       /**
-       * Shreds the Ferrers diagram such that the "even" vertical strips are in
-       * one color, and the "odd" vertical strips are in another color.
+       * Translates the dots (<i>x</i>, <i>y</i>) of the specified color to
+       * <i>ax</i> + <i>by</i>, <i>cx</i> + <i>dy</i>), where
+       * <i>a</i>, <i>b</i>, <i>c</i>, <i>d</i> ∈ ℤ.
        * 
-       * @throws InterruptedException if the animation is interrupted
+       * @param color   the color of the dots to translate
+       * @param a       the first coefficient
+       * @param b       the second coefficient
+       * @param c       the third coefficient
+       * @param d       the fourth coefficient
        */
-      private void shred() throws InterruptedException
+      private void shift(Color color, int a, int b, int c, int d)
+         throws InterruptedException
       {
-         for (int i = 0; i < rows; i++)
+         Vector<Thread> v = new Vector<Thread>();
+         
+         for (Dot dot : ferrers)
          {
-            // "Even" vertical strips
-            for (int j = 0; j < λ.part(i); j += 2)
-               ferrers[i * columns + j].setColor(TRANSLUCENT_UCLA_GOLD);
-            
-            // "Odd" vertical strips
-            for (int j = 1; j < λ.part(i); j += 2)
-               ferrers[i * columns + j].setColor(TRANSLUCENT_UCLA_BLUE);
+            if (dot != null && dot.getColor() == color)
+            {
+               int xi = dot.x / (DOT_RADIUS * 3);
+               int yi = dot.y / (DOT_RADIUS * 3);
+               int xf = a * xi + b * yi;
+               int yf = c * xi + d * yi;
+               v.add(new Thread(new AnimationRunnable(dot, xf - xi, yf - yi)));
+            }
+         }
+         
+         for (Thread t : v) t.start();
+         for (Thread t : v) t.join();
+      }
+      
+      /**
+       * Projects the dots (<i>i</i>, <i>j</i>) onto the component corresponding
+       * to the coset Γ<sub><i>k</i></sub>, where
+       * <i>k</i> = <i>i</i> <code>%</code> <code>strips.length</code>.
+       * 
+       * @param color    the color of the component to shred
+       * @param strips   the colors of the vertical strips
+       */
+      private void shred(Color color, Color... strips)
+         throws InterruptedException
+      {
+         for (Dot dot : ferrers)
+         {
+            if (dot != null && dot.getColor() == color)
+            {
+               int x = dot.x / (DOT_RADIUS * 3);
+               dot.setColor(strips[x % strips.length]);
+            }
          }
          
          pause(HOLD);
       }
       
       /**
-       * Stretches all of the vertical strips of the lower part of the Ferrers
-       * diagram down by a factor of 2.
+       * Translates the dots (<i>x</i>, <i>y</i>) of the specified color to
+       * (<i>ki</i>, <sup><i>j</i></sup>/<sub>ℓ</sub>), where
+       * <i>k</i>, <i>ℓ</i> ∈ ℤ.
        * 
-       * @throws InterruptedException if the animation is interrupted
+       * @param color   the color of the dots to translate
+       * @param k       the stretch factor in the dot's horizontal position
+       * @param l       the compression factor in the dot's vertical position
        */
-      private void stretchAllLowerVerticalStripsDown()
+      private void stretch(Color color, double k, double l)
          throws InterruptedException
       {
          Vector<Thread> v = new Vector<Thread>();
          
-         for (int i = 0; i < rows; i++)
+         for (Dot dot : ferrers)
          {
-            // "Even" vertical strips of the lower part
-            for (int j = 0; j <= 2 * i; j += 2)
+            if (dot != null && dot.getColor() == color)
             {
-               int k = i * columns + j;
-               int dy = j / 2;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
-            
-            // "Odd" vertical strips of the lower part
-            for (int j = 1; j <= 2 * i; j += 2)
-            {
-               int k = i * columns + j;
-               int dy = j / 2 + 1;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
+               int x = dot.x / (DOT_RADIUS * 3);
+               int y = dot.y / (DOT_RADIUS * 3);
+               int dx = (int) (x * k) - x;
+               int dy = (int) (y / l) - y;
+               v.add(new Thread(new AnimationRunnable(dot, dx, dy)));
             }
          }
          
-         // Starts the animation.
          for (Thread t : v) t.start();
          for (Thread t : v) t.join();
       }
       
-      /**
-       * Stretches all of the vertical strips of the upper part of the Ferrers
-       * diagram down by a factor of 2.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void stretchAllUpperVerticalStripsDown()
-         throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
-         
-         for (int i = 0; i < rows; i++)
-         {
-            // "Even" vertical strips of the upper component
-            for (int j = 2 * i + 1; j < λ.part(i); j += 2)
-            {
-               int k = i * columns + j;
-               int dy = i;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
-            
-            // "Odd" vertical strips of the upper component
-            for (int j = 2 * i + 2; j < λ.part(i); j += 2)
-            {
-               int k = i * columns + j;
-               int dy = i + 1;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
-         }
-         
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Stretches all of the vertical strips of the Ferrers diagram down by a
-       * factor of 2.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void stretchAllVerticalStripsDown() throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
-         
-         for (int i = 0; i < rows; i++)
-         {
-            // "Even" vertical strips
-            for (int j = 0; j < λ.part(i); j += 2)
-            {
-               int k = i * columns + j;
-               int dy = i + 1;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
-            
-            // "Odd" vertical strips
-            for (int j = 1; j < λ.part(i); j += 2)
-            {
-               int k = i * columns + j;
-               int dy = i;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], 0, dy)));
-            }
-         }
-         
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Stretches both the upper and lower parts of the Ferrers diagram to the
-       * right by a factor of 2.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void stretchBothPartsRight() throws InterruptedException
-      {
-         Vector<Thread> v = new Vector<Thread>();
-         
-         for (int i = 0; i < rows; i++)
-         {
-            // Upper part
-            for (int j = i; j < λ.part(i); j++)
-            {
-               int k = i * columns + j;
-               int dx = j - i;
-               v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-            
-            // Lower part
-            for (int j = 0; j <= i - 1; j++)
-            {
-               int k = i * columns + j;
-               int dx = i - j;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  v.add(new Thread(new AnimationRunnable(ferrers[k], dx, 0)));
-            }
-         }
-         
-         // Starts the animation.
-         for (Thread t : v) t.start();
-         for (Thread t : v) t.join();
-      }
-      
-      /**
-       * Transposes the Ferrers diagram.
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
+      /** Transposes the Ferrers diagram. */
       private void transpose() throws InterruptedException
       {
-         Thread.sleep(HOLD);
-         for (Dot dot : ferrers) if (dot != null) dot.move(dot.y, dot.x);
-         board.repaint();
-      }
-      
-      /**
-       * Transposes the lower part of the Ferrers diagram.
-       * 
-       * @param a   the slope of the diagonal cut
-       * @param c   the downward shift in the diagonal cut
-       * 
-       * @throws InterruptedException if the animation is interrupted
-       */
-      private void transposeLowerPart(int a, int c) throws InterruptedException
-      {
-         Thread.sleep(HOLD);
+         Vector<Thread> v = new Vector<Thread>();
          
-         for (int i = 0; i < rows; i++)
+         for (Dot dot : ferrers)
          {
-            for (int j = 0; j <= a * i - c; j++)
+            if (dot != null)
             {
-               int k = i * columns + j;
-               if (j < λ.part(i) && ferrers[k] != null)
-                  ferrers[k].move(ferrers[k].y, ferrers[k].x);
+               int dx = (dot.y - dot.x) / (DOT_RADIUS * 3);
+               int dy = (dot.x - dot.y) / (DOT_RADIUS * 3);
+               v.add(new Thread(new AnimationRunnable(dot, dx, dy)));
             }
          }
          
-         pause(HOLD);
+         for (Thread t : v) t.start();
+         for (Thread t : v) t.join();
+      }
+      
+      /**
+       * Translates the dots (<i>x</i>, <i>y</i>) of the specified color to
+       * (<i>y</i> - <i>k</i>, <i>y</i> + <i>k</i>), where
+       * <i>dx</i>, <i>dy</i> ∈ ℤ.
+       * 
+       * @param color   the color of the dots to translate
+       * @param k       the downward shift in the transposition
+       */
+      private void transpose(Color color, int k) throws InterruptedException
+      {
+         Vector<Thread> v = new Vector<Thread>();
+         
+         for (Dot dot : ferrers)
+         {
+            if (dot != null && dot.getColor() == color)
+            {
+               int dx = (dot.y - dot.x) / (DOT_RADIUS * 3) - k;
+               int dy = (dot.x - dot.y) / (DOT_RADIUS * 3) + k;
+               v.add(new Thread(new AnimationRunnable(dot, dx, dy)));
+            }
+         }
+         
+         for (Thread t : v) t.start();
+         for (Thread t : v) t.join();
       }
       
       /**
@@ -1042,8 +895,8 @@ public class Partitions extends JApplet
          {
             try
             {
-               int x = dot.x + 3 * dotRadius * dx;
-               int y = dot.y + 3 * dotRadius * dy;
+               int x = dot.x + 3 * DOT_RADIUS * dx;
+               int y = dot.y + 3 * DOT_RADIUS * dy;
                
                // Moves the dot.
                if (dx >= 0)
@@ -1060,11 +913,7 @@ public class Partitions extends JApplet
             catch (InterruptedException e) {}
          }
          
-         /**
-          * Animates this runnable.
-          * 
-          * @throws InterruptedException if the animation is interrupted
-          */
+         /** Animates this runnable. */
          private void animate() throws InterruptedException
          {
             dot.translate(dx, dy);
